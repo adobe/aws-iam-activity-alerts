@@ -1,0 +1,18 @@
+[
+  {
+    "ParameterKey": "NotificationEmail",
+    "ParameterValue": "security-team@example.com"
+  },
+  {
+    "ParameterKey": "SlackWebhookUrl",
+    "ParameterValue": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  },
+  {
+    "ParameterKey": "ExcludedUserNames",
+    "ParameterValue": "service-account1,service-account2"
+  },
+  {
+    "ParameterKey": "AlertRuleName",
+    "ParameterValue": "iam-user-creation-alert"
+  }
+]
