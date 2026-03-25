@@ -129,37 +129,37 @@ Resources:
                           'fields': [
                               {
                                   'title': 'Target User',
-                                  'value': user_name,
+                                  'value': f'`{user_name}`',
                                   'short': True
                               },
                               {
                                   'title': 'Event Time',
-                                  'value': event_time,
+                                  'value': f'`{event_time}`',
                                   'short': True
                               },
                               {
                                   'title': 'Account ID',
-                                  'value': account_id,
+                                  'value': f'`{account_id}`',
                                   'short': True
                               },
                               {
                                   'title': 'Region',
-                                  'value': region,
+                                  'value': f'`{region}`',
                                   'short': True
                               },
                               {
                                   'title': 'Source IP',
-                                  'value': source_ip,
+                                  'value': f'`{source_ip}`',
                                   'short': True
                               },
                               {
                                   'title': 'Principal',
-                                  'value': principal,
+                                  'value': f'`{principal}`',
                                   'short': True
                               },
                               {
                                   'title': 'Principal ARN',
-                                  'value': arn,
+                                  'value': f'`{arn}`',
                                   'short': False
                               }
                           ],

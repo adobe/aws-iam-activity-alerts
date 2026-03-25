@@ -39,6 +39,70 @@ check_aws_cli() {
     print_info "AWS CLI found: $(aws --version)"
 }
 
+# Function to configure AWS credentials
+configure_aws_credentials() {
+    echo ""
+    print_info "Checking AWS credentials..."
+
+    # Check if credentials are already configured
+    if aws sts get-caller-identity &>/dev/null; then
+        local identity
+        identity=$(aws sts get-caller-identity --query 'Arn' --output text 2>/dev/null)
+        print_info "Already authenticated as: ${identity}"
+        read -r -p "Do you want to reconfigure credentials? (yes/no) [no]: " reconfigure
+        if [ "${reconfigure}" != "yes" ] && [ "${reconfigure}" != "y" ]; then
+            return
+        fi
+    else
+        print_warning "No valid AWS credentials found. Please configure them now."
+    fi
+
+    echo ""
+    echo "Paste your AWS credentials block below, then press Enter twice:"
+    echo "(e.g. from AWS SSO: aws_access_key_id=... / aws_secret_access_key=... / aws_session_token=...)"
+    echo ""
+
+    aws_access_key_id=""
+    aws_secret_access_key=""
+    aws_session_token=""
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && break
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            aws_access_key_id)     aws_access_key_id="$value" ;;
+            aws_secret_access_key) aws_secret_access_key="$value" ;;
+            aws_session_token)     aws_session_token="$value" ;;
+        esac
+    done
+
+    if [ -z "$REGION" ]; then
+        REGION=$(get_configured_region)
+    fi
+    read -r -p "AWS Region [${REGION}]: " input
+    REGION=${input:-$REGION}
+
+    aws configure set aws_access_key_id "$aws_access_key_id"
+    aws configure set aws_secret_access_key "$aws_secret_access_key"
+    aws configure set region "$REGION"
+
+    if [ -n "$aws_session_token" ]; then
+        aws configure set aws_session_token "$aws_session_token"
+        print_info "Session token configured."
+    fi
+
+    # Verify credentials work
+    if aws sts get-caller-identity &>/dev/null; then
+        local identity
+        identity=$(aws sts get-caller-identity --query 'Arn' --output text 2>/dev/null)
+        print_info "Successfully authenticated as: ${identity}"
+    else
+        print_error "Credential verification failed. Please check your credentials and try again."
+        exit 1
+    fi
+}
+
 # Function to check if CloudTrail is enabled
 check_cloudtrail() {
     print_info "Checking if CloudTrail is enabled..."
@@ -50,6 +114,17 @@ check_cloudtrail() {
         print_warning "Please ensure CloudTrail is configured to log management events."
     else
         print_info "CloudTrail is enabled."
+    fi
+}
+
+# Function to get the configured AWS region, falling back to us-east-1 if invalid
+get_configured_region() {
+    local region
+    region=$(aws configure get region 2>/dev/null)
+    if [[ "$region" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]; then
+        echo "$region"
+    else
+        echo "us-east-1"
     fi
 }
 
@@ -77,7 +152,7 @@ get_parameters() {
 
     # AWS Region
     if [ -z "$REGION" ]; then
-        REGION=$(aws configure get region 2>/dev/null || echo "us-east-1")
+        REGION=$(get_configured_region)
     fi
     read -r -p "AWS Region [${REGION}]: " input
     REGION=${input:-$REGION}
@@ -232,6 +307,7 @@ main() {
     echo ""
 
     check_aws_cli
+    configure_aws_credentials
     check_cloudtrail
     get_parameters
     build_parameters

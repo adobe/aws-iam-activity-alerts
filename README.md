@@ -28,19 +28,88 @@ Notifications are delivered via email (SNS) and/or Slack, enabling security team
 
 ## Prerequisites
 
-- AWS account with CloudTrail enabled (management events logging)
-- AWS CLI installed and configured
-- (Optional) Slack Incoming Webhook URL
+### 1. AWS CLI
+
+Install the AWS CLI if you haven't already:
+
+- **macOS**: `brew install awscli`
+- **Linux**: Follow the [official install guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+- **Windows**: Use the MSI installer from the link above
+
+Verify it's installed:
+```bash
+aws --version
+```
+
+### 2. AWS Credentials
+
+You need valid AWS credentials with permission to create CloudFormation stacks, IAM roles, EventBridge rules, SNS topics, and Lambda functions.
+
+**Standard credentials** (long-lived access keys):
+```bash
+aws configure
+# Enter your AWS Access Key ID, Secret Access Key, region, and output format
+```
+
+**Temporary credentials** (AWS SSO, MFA, or assumed roles):
+
+`aws configure` does not prompt for a session token. If you're using temporary credentials (e.g. copied from the AWS SSO console), paste all three lines individually:
+```bash
+aws configure set aws_access_key_id YOUR_ACCESS_KEY_ID
+aws configure set aws_secret_access_key YOUR_SECRET_ACCESS_KEY
+aws configure set aws_session_token YOUR_SESSION_TOKEN
+aws configure set region us-east-1
+```
+
+Alternatively, the `deploy.sh` script has a built-in credential setup step — you can paste the full credentials block (all three `key=value` lines at once) when prompted.
+
+Verify your credentials are working:
+```bash
+aws sts get-caller-identity
+```
+You should see your account ID and IAM principal returned. If this fails, your credentials are invalid or expired.
+
+### 3. CloudTrail
+
+This solution relies on AWS CloudTrail to capture IAM API calls. Ensure a trail exists in your account that logs **management events**:
+
+```bash
+aws cloudtrail describe-trails --query 'trailList[*].[name,IsMultiRegionTrail,HomeRegion]' --output table
+```
+
+If no trail exists, create one in the AWS Console under **CloudTrail > Create trail** before deploying.
+
+### 4. (Optional) Slack Incoming Webhook URL
+
+Required only if you want Slack notifications. See [Setting Up Slack Webhooks](#setting-up-slack-webhooks) below.
+
+---
 
 ## Quick Start
 
-### Interactive Script
+### Interactive Script (Recommended)
+
+The easiest way to deploy is using the interactive script:
 
 ```bash
 ./deploy.sh
 ```
 
-The script prompts for notification method (email, Slack, or both), excluded usernames, and rule name, then deploys the CloudFormation stack.
+The script will walk you through the following steps:
+
+1. **AWS credentials** — checks if you're already authenticated. If not, prompts you to paste your credentials block.
+2. **CloudTrail check** — verifies a multi-region trail is active.
+3. **Stack name** — defaults to `iam-activity-alerts`, press Enter to accept.
+4. **AWS region** — defaults to your currently configured region (e.g. `us-east-1`).
+5. **Notification method** — choose one:
+   - `1` — Email only (enter your email address)
+   - `2` — Slack only (enter your webhook URL)
+   - `3` — Both email and Slack
+6. **Excluded usernames** — comma-separated list of IAM usernames that should NOT trigger alerts (e.g. automated service accounts). Leave empty to alert on all users.
+7. **Alert rule name** — defaults to `iam-user-creation-alert`.
+8. **Confirmation** — review the summary and type `yes` to deploy.
+
+The script waits for the stack to finish deploying and prints the stack outputs when complete.
 
 ### AWS CLI
 
@@ -259,8 +328,17 @@ eventName:
 
 ## Cleanup
 
+Use the interactive teardown script to remove all deployed resources:
+
 ```bash
-aws cloudformation delete-stack --stack-name iam-activity-alerts
+./teardown.sh
+```
+
+The script lists all stack resources before asking for confirmation, then waits for the deletion to complete.
+
+Alternatively, delete directly with the AWS CLI:
+```bash
+aws cloudformation delete-stack --stack-name iam-activity-alerts --region us-east-1
 ```
 
 ## Cost
