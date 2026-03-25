@@ -108,6 +108,55 @@ delete_stack() {
     fi
 }
 
+verify_deletion() {
+    echo ""
+    print_info "Verifying all resources have been removed..."
+    local all_clean=true
+
+    # 1. Confirm the CloudFormation stack is gone
+    if aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" &>/dev/null; then
+        print_error "CloudFormation stack '${STACK_NAME}' still exists. Check the console for stuck resources."
+        all_clean=false
+    else
+        print_info "CloudFormation stack removed."
+    fi
+
+    # 2. Check for leftover CloudWatch Log Groups (Lambda creates these at runtime; they are not owned by the stack)
+    local log_groups
+    log_groups=$(aws logs describe-log-groups \
+        --log-group-name-prefix "/aws/lambda/" \
+        --region "$REGION" \
+        --query "logGroups[?contains(logGroupName, '${STACK_NAME}') || contains(logGroupName, 'iam-')].logGroupName" \
+        --output text 2>/dev/null)
+
+    if [ -n "$log_groups" ]; then
+        print_warning "The following CloudWatch Log Groups were not removed (Lambda creates these outside of CloudFormation):"
+        for lg in $log_groups; do
+            echo "  ${lg}"
+        done
+        echo ""
+        read -r -p "Delete these log groups? (yes/no) [no]: " delete_logs
+        if [ "$delete_logs" == "yes" ] || [ "$delete_logs" == "y" ]; then
+            for lg in $log_groups; do
+                aws logs delete-log-group --log-group-name "$lg" --region "$REGION"
+                print_info "Deleted log group: ${lg}"
+            done
+        else
+            print_warning "Log groups left in place. You can delete them manually in the CloudWatch console."
+        fi
+    else
+        print_info "No leftover CloudWatch Log Groups found."
+    fi
+
+    # 3. Summary
+    echo ""
+    if [ "$all_clean" = true ]; then
+        print_info "All stack resources have been removed successfully."
+    else
+        print_warning "Some resources may still exist. Review the output above."
+    fi
+}
+
 main() {
     echo ""
     echo "╔════════════════════════════════════════╗"
@@ -119,6 +168,7 @@ main() {
     check_aws_cli
     get_parameters
     delete_stack
+    verify_deletion
 
     echo ""
     print_info "Teardown complete."
