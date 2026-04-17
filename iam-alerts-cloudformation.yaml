@@ -33,6 +33,14 @@ Conditions:
   UseSlack: !Not [!Equals [!Ref SlackWebhookUrl, '']]
   HasNotifications: !Or [!Condition UseEmail, !Condition UseSlack]
 
+Rules:
+  AtLeastOneNotification:
+    Assertions:
+      - Assert: !Or
+          - !Not [!Equals [!Ref NotificationEmail, '']]
+          - !Not [!Equals [!Ref SlackWebhookUrl, '']]
+        AssertDescription: At least one notification method (email or Slack) must be configured
+
 Resources:
   # SNS Topic for email notifications
   IAMAlertTopic:
@@ -90,6 +98,10 @@ Resources:
 
           def lambda_handler(event, context):
               webhook_url = os.environ['SLACK_WEBHOOK_URL']
+
+              if not webhook_url.startswith('https://hooks.slack.com/'):
+                  logger.error('Invalid webhook URL - must start with https://hooks.slack.com/')
+                  raise RuntimeError('Invalid webhook URL')
 
               # Parse the EventBridge event
               detail = event.get('detail', {})
@@ -179,15 +191,9 @@ Resources:
                       headers={'Content-Type': 'application/json'}
                   )
                   if response.status != 200:
-                      logger.error(
-                          'Slack webhook returned HTTP %s: %s',
-                          response.status,
-                          response.data.decode('utf-8')
-                      )
-                      return {
-                          'statusCode': response.status,
-                          'body': json.dumps(f'Failed to send notification: HTTP {response.status}')
-                      }
+                      msg = f'Slack webhook returned HTTP {response.status}: {response.data.decode("utf-8")}'
+                      logger.error(msg)
+                      raise RuntimeError(msg)
               except Exception as e:
                   logger.exception('Failed to send Slack notification: %s', str(e))
                   raise
@@ -272,19 +278,13 @@ Outputs:
   EventRuleName:
     Description: Name of the EventBridge rule
     Value: !Ref IAMEventRule
-    Export:
-      Name: !Sub '${AWS::StackName}-RuleName'
 
   SNSTopicArn:
     Condition: UseEmail
     Description: ARN of the SNS topic for email notifications
     Value: !Ref IAMAlertTopic
-    Export:
-      Name: !Sub '${AWS::StackName}-TopicArn'
 
   LambdaFunctionArn:
     Condition: UseSlack
     Description: ARN of the Lambda function for Slack notifications
     Value: !GetAtt SlackNotificationFunction.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-LambdaArn'

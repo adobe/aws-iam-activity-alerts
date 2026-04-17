@@ -83,12 +83,10 @@ configure_aws_credentials() {
     read -r -p "AWS Region [${REGION}]: " input
     REGION=${input:-$REGION}
 
-    aws configure set aws_access_key_id "$aws_access_key_id"
-    aws configure set aws_secret_access_key "$aws_secret_access_key"
-    aws configure set region "$REGION"
-
+    export AWS_ACCESS_KEY_ID="$aws_access_key_id"
+    export AWS_SECRET_ACCESS_KEY="$aws_secret_access_key"
     if [ -n "$aws_session_token" ]; then
-        aws configure set aws_session_token "$aws_session_token"
+        export AWS_SESSION_TOKEN="$aws_session_token"
         print_info "Session token configured."
     fi
 
@@ -121,7 +119,7 @@ check_cloudtrail() {
 get_configured_region() {
     local region
     region=$(aws configure get region 2>/dev/null)
-    if [[ "$region" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]; then
+    if [[ "$region" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]]; then
         echo "$region"
     else
         echo "us-east-1"
@@ -180,7 +178,14 @@ get_parameters() {
             done
             ;;
         2)
-            read -r -p "Slack Webhook URL: " WEBHOOK
+            while true; do
+                read -r -p "Slack Webhook URL: " WEBHOOK
+                if [[ "$WEBHOOK" =~ ^https://hooks\.slack\.com/services/ ]]; then
+                    break
+                else
+                    print_error "Invalid Slack webhook URL. Must start with https://hooks.slack.com/services/"
+                fi
+            done
             ;;
         3)
             while true; do
@@ -191,7 +196,14 @@ get_parameters() {
                     print_error "Invalid email format. Please try again."
                 fi
             done
-            read -r -p "Slack Webhook URL: " WEBHOOK
+            while true; do
+                read -r -p "Slack Webhook URL: " WEBHOOK
+                if [[ "$WEBHOOK" =~ ^https://hooks\.slack\.com/services/ ]]; then
+                    break
+                else
+                    print_error "Invalid Slack webhook URL. Must start with https://hooks.slack.com/services/"
+                fi
+            done
             ;;
         *)
             print_error "Invalid selection"
@@ -256,7 +268,13 @@ deploy_stack() {
     if [ "$OPERATION" == "create-stack" ]; then
         aws cloudformation wait stack-create-complete --stack-name "$STACK_NAME" --region "$REGION"
     else
-        aws cloudformation wait stack-update-complete --stack-name "$STACK_NAME" --region "$REGION" 2>/dev/null || true
+        aws cloudformation wait stack-update-complete --stack-name "$STACK_NAME" --region "$REGION" 2>/dev/null
+        STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" \
+            --query 'Stacks[0].StackStatus' --output text)
+        if [[ "$STATUS" != "UPDATE_COMPLETE" ]]; then
+            print_error "Stack update failed. Status: ${STATUS}"
+            exit 1
+        fi
     fi
 
     print_info "Stack deployment completed!"

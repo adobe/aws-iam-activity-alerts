@@ -14,6 +14,7 @@ NC='\033[0m' # No Color
 # Default values
 STACK_NAME="iam-activity-alerts"
 REGION=""
+LAMBDA_FUNCTION_NAME=""
 
 print_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -31,7 +32,7 @@ print_error() {
 get_configured_region() {
     local region
     region=$(aws configure get region 2>/dev/null)
-    if [[ "$region" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]; then
+    if [[ "$region" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]]; then
         echo "$region"
     else
         echo "us-east-1"
@@ -85,6 +86,13 @@ delete_stack() {
         --query 'StackResourceSummaries[*].[ResourceType,LogicalResourceId,ResourceStatus]' \
         --output table 2>/dev/null || true
 
+    # Capture the Lambda function name before deletion so we can clean up its log group later
+    LAMBDA_FUNCTION_NAME=$(aws cloudformation list-stack-resources \
+        --stack-name "$STACK_NAME" \
+        --region "$REGION" \
+        --query "StackResourceSummaries[?ResourceType=='AWS::Lambda::Function'].PhysicalResourceId" \
+        --output text 2>/dev/null || echo "")
+
     echo ""
     read -r -p "Are you sure you want to delete this stack? (yes/no): " confirm
     if [ "$confirm" != "yes" ] && [ "$confirm" != "y" ]; then
@@ -123,11 +131,19 @@ verify_deletion() {
 
     # 2. Check for leftover CloudWatch Log Groups (Lambda creates these at runtime; they are not owned by the stack)
     local log_groups
-    log_groups=$(aws logs describe-log-groups \
-        --log-group-name-prefix "/aws/lambda/" \
-        --region "$REGION" \
-        --query "logGroups[?contains(logGroupName, '${STACK_NAME}') || contains(logGroupName, 'iam-')].logGroupName" \
-        --output text 2>/dev/null)
+    if [ -n "$LAMBDA_FUNCTION_NAME" ]; then
+        log_groups=$(aws logs describe-log-groups \
+            --log-group-name-prefix "/aws/lambda/${LAMBDA_FUNCTION_NAME}" \
+            --region "$REGION" \
+            --query "logGroups[].logGroupName" \
+            --output text 2>/dev/null)
+    else
+        log_groups=$(aws logs describe-log-groups \
+            --log-group-name-prefix "/aws/lambda/" \
+            --region "$REGION" \
+            --query "logGroups[?contains(logGroupName, '${STACK_NAME}')].logGroupName" \
+            --output text 2>/dev/null)
+    fi
 
     if [ -n "$log_groups" ]; then
         print_warning "The following CloudWatch Log Groups were not removed (Lambda creates these outside of CloudFormation):"
